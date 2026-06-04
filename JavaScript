@@ -1,0 +1,143 @@
+async function operator(proxies, targetPlatform, context) {
+  // 1. 扩充的全球主流地区与中文名称映射表
+  const isoToCountryName = {
+    'HK': '香港', 'TW': '台湾', 'MO': '澳门', 'JP': '日本', 'SG': '狮城', 
+    'US': '美国', 'KR': '韩国', 'GB': '英国', 'UK': '英国', 'CN': '中国', 
+    'DE': '德国', 'FR': '法国', 'RU': '俄罗斯', 'CA': '加拿大', 
+    'AU': '澳大利亚', 'NZ': '新西兰', 'NL': '荷兰', 'MY': '马来西亚', 
+    'TH': '泰国', 'VN': '越南', 'PH': '菲律宾', 'ID': '印尼', 'IN': '印度', 
+    'AE': '阿联酋', 'SA': '沙特', 'TR': '土耳其', 'IT': '意大利', 'ES': '西班牙',
+    'CH': '瑞士', 'SE': '瑞典', 'NO': '挪威', 'DK': '丹麦', 'FI': '芬兰', 
+    'PL': '波兰', 'IE': '爱尔兰', 'PT': '葡萄牙', 'AT': '奥地利', 'BR': '巴西', 
+    'AR': '阿根廷', 'CL': '智利', 'ZA': '南非', 'EG': '埃及', 'NG': '尼日利亚', 
+    'MX': '墨西哥', 'KH': '柬埔寨', 'MM': '缅甸', 'LA': '老挝', 'BD': '孟加拉', 
+    'PK': '巴基斯坦', 'LK': '斯里兰卡', 'KZ': '哈萨克斯坦', 'UA': '乌克兰', 
+    'CZ': '捷克', 'HU': '匈牙利', 'IS': '冰岛'
+  };
+
+  // 2. 指定地区的高优先级排序权重（1 - 12）
+  const explicitRegionWeights = {
+    '香港': 1, '台湾': 2, '澳门': 3, '日本': 4, '狮城': 5, 
+    '美国': 6, '韩国': 7, '泰国': 8, '马来西亚': 9, '菲律宾': 10, 
+    '越南': 11, '印尼': 12
+  };
+
+  // 3. 节点类型排序权重（数字越小越靠前）
+  const typeWeights = {
+    '专线': 1,
+    '高速': 2,
+    '家宽': 3,
+    '直连': 4
+  };
+
+  // 4. 大洲分类获取函数（用于为未明确排名的地区分配底层权重）
+  const getContinentWeight = (country) => {
+    const asia = ['中国', '印度', '阿联酋', '沙特', '土耳其', '柬埔寨', '缅甸', '老挝', '孟加拉', '巴基斯坦', '斯里兰卡', '哈萨克斯坦'];
+    const europe = ['英国', '德国', '法国', '俄罗斯', '荷兰', '意大利', '西班牙', '瑞士', '瑞典', '挪威', '丹麦', '芬兰', '波兰', '爱尔兰', '葡萄牙', '奥地利', '乌克兰', '捷克', '匈牙利', '冰岛'];
+    const americas = ['加拿大', '巴西', '阿根廷', '智利', '墨西哥'];
+    const africa = ['南非', '埃及', '尼日利亚'];
+    const oceania = ['澳大利亚', '新西兰']; // 归为大洋洲兜底区
+
+    if (asia.includes(country)) return 20;
+    if (europe.includes(country)) return 30;
+    if (americas.includes(country)) return 40;
+    if (africa.includes(country)) return 50;
+    if (oceania.includes(country)) return 60;
+    return 99; // 完全未知的地区垫底
+  };
+
+  // 5. 拦截过滤：剔除各类非节点干扰信息
+  let processedProxies = proxies.filter(proxy => {
+    const name = proxy.name || '';
+    return !/流量|重置|到期|剩余|套餐|提示|通知|官网|工单/i.test(name);
+  });
+
+  // 6. 信息提取与兼容性重命名
+  processedProxies = processedProxies.map(proxy => {
+    const name = proxy.name || '';
+
+    // --- 旗帜与地区提取 ---
+    let flag = ProxyUtils.getFlag(name) || '🏳️';
+    flag = flag.replace(/🇹🇼/g, '🇼🇸'); 
+
+    const iso = ProxyUtils.getISO(name);
+    let countryName = isoToCountryName[iso];
+
+    // 强兼容兜底，加入了新增加的东南亚核心国家词汇
+    if (!countryName) {
+      const explicitMatch = name.match(/香港|台湾|澳门|日本|新加坡|狮城|美国|韩国|英国|中国|泰国|马来西亚|菲律宾|越南|印尼/);
+      if (explicitMatch) {
+        countryName = explicitMatch[0];
+      } else {
+        const chineseMatch = name.match(/[\u4e00-\u9fa5]{2,4}/);
+        countryName = chineseMatch ? chineseMatch[0] : (iso || '未知');
+      }
+    }
+    if (countryName === '新加坡') countryName = '狮城'; 
+
+    // --- 节点类型提取 ---
+    let nodeType = '';
+    const typeMatch = name.match(/(直连|高速|专线|家宽)/);
+    if (typeMatch) {
+      nodeType = typeMatch[1];
+    }
+
+    // --- 倍率提取 ---
+    const rateMatch = name.match(/(\d+(?:\.\d+)?)\s*[xX]/);
+    let rateStr = '';
+    if (rateMatch) {
+      const rateValue = parseFloat(rateMatch[1]);
+      if (rateValue !== 1) rateStr = `${rateMatch[1]}x`;
+    }
+
+    // --- 排序序号提取 ---
+    const nameWithoutRate = name.replace(/\d+(\.\d+)?\s*[xX]/g, '');
+    const chineseAnchorMatch = nameWithoutRate.match(/[\u4e00-\u9fa5]+/);
+    let order = '';
+    
+    const orderRegex = /(?:^|[^a-zA-Z])([A-Za-z])(?![a-zA-Z])|([A-Za-z]?\d+)/;
+    
+    if (chineseAnchorMatch) {
+      const anchorIndex = nameWithoutRate.indexOf(chineseAnchorMatch[0]);
+      const afterAnchor = nameWithoutRate.substring(anchorIndex + chineseAnchorMatch[0].length);
+      
+      const match = afterAnchor.match(orderRegex);
+      if (match) {
+        order = (match[1] || match[2]).toUpperCase();
+        if (/^\d+$/.test(order)) order = order.padStart(2, '0');
+      }
+    } else {
+      const fallbackMatch = nameWithoutRate.match(orderRegex);
+      if (fallbackMatch) {
+        order = (fallbackMatch[1] || fallbackMatch[2]).toUpperCase();
+        if (/^\d+$/.test(order)) order = order.padStart(2, '0');
+      }
+    }
+
+    // --- 暂存排序依据 ---
+    proxy._countryName = countryName;
+    proxy._type = nodeType;
+    proxy._order = order || '999';
+
+    // --- 动态拼接名称 ---
+    const nameParts = [flag, countryName];
+    if (nodeType) nameParts.push(nodeType);
+    if (order) nameParts.push(order);
+    if (rateStr) nameParts.push(rateStr);
+
+    proxy.name = nameParts.join(' ');
+    return proxy;
+  });
+
+  // 7. 三级复合排序：地区/大洲 -> 类型 -> 序号
+  processedProxies.sort((a, b) => {
+    // 第一层：地区/大洲综合权重比较
+    // 优先读取 explicitRegionWeights，如果不存在则通过 getContinentWeight 获取大洲排位
+    const weightA = explicitRegionWeights[a._countryName] || getContinentWeight(a._countryName);
+    const weightB = explicitRegionWeights[b._countryName] || getContinentWeight(b._countryName);
+    if (weightA !== weightB) {
+      return weightA - weightB;
+    }
+    
+    // 第二层：节点类型比较 (如 专线 -> 高速)
+    const typeWeigh
