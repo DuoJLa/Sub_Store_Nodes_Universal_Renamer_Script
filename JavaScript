@@ -1,23 +1,32 @@
 async function operator(proxies, targetPlatform, context) {
-  // 1. 扩充的全球主流地区与中文名称映射表
+
+  // ================================================================
+  // 模块一：地区映射表
+  // ISO 3166-1 二位代码 → 中文地区名称
+  // ================================================================
   const isoToCountryName = {
-    'HK': '香港', 'TW': '台湾', 'MO': '澳门', 'JP': '日本', 'SG': '狮城', 
-    'US': '美国', 'KR': '韩国', 'GB': '英国', 'UK': '英国', 'CN': '中国', 
-    'DE': '德国', 'FR': '法国', 'RU': '俄罗斯', 'CA': '加拿大', 
-    'AU': '澳大利亚', 'NZ': '新西兰', 'NL': '荷兰', 'MY': '马来西亚', 
-    'TH': '泰国', 'VN': '越南', 'PH': '菲律宾', 'ID': '印尼', 'IN': '印度', 
+    'HK': '香港', 'TW': '台湾', 'MO': '澳门', 'JP': '日本', 'SG': '狮城',
+    'US': '美国', 'KR': '韩国', 'GB': '英国', 'UK': '英国', 'CN': '中国',
+    'DE': '德国', 'FR': '法国', 'RU': '俄罗斯', 'CA': '加拿大',
+    'AU': '澳大利亚', 'NZ': '新西兰', 'NL': '荷兰', 'MY': '马来西亚',
+    'TH': '泰国', 'VN': '越南', 'PH': '菲律宾', 'ID': '印尼', 'IN': '印度',
     'AE': '阿联酋', 'SA': '沙特', 'TR': '土耳其', 'IT': '意大利', 'ES': '西班牙',
-    'CH': '瑞士', 'SE': '瑞典', 'NO': '挪威', 'DK': '丹麦', 'FI': '芬兰', 
-    'PL': '波兰', 'IE': '爱尔兰', 'PT': '葡萄牙', 'AT': '奥地利', 'BR': '巴西', 
-    'AR': '阿根廷', 'CL': '智利', 'ZA': '南非', 'EG': '埃及', 'NG': '尼日利亚', 
-    'MX': '墨西哥', 'KH': '柬埔寨', 'MM': '缅甸', 'LA': '老挝', 'BD': '孟加拉', 
-    'PK': '巴基斯坦', 'LK': '斯里兰卡', 'KZ': '哈萨克斯坦', 'UA': '乌克兰', 
+    'CH': '瑞士', 'SE': '瑞典', 'NO': '挪威', 'DK': '丹麦', 'FI': '芬兰',
+    'PL': '波兰', 'IE': '爱尔兰', 'PT': '葡萄牙', 'AT': '奥地利', 'BR': '巴西',
+    'AR': '阿根廷', 'CL': '智利', 'ZA': '南非', 'EG': '埃及', 'NG': '尼日利亚',
+    'MX': '墨西哥', 'KH': '柬埔寨', 'MM': '缅甸', 'LA': '老挝', 'BD': '孟加拉',
+    'PK': '巴基斯坦', 'LK': '斯里兰卡', 'KZ': '哈萨克斯坦', 'UA': '乌克兰',
     'CZ': '捷克', 'HU': '匈牙利', 'IS': '冰岛'
   };
 
+  // ================================================================
+  // 模块二：排序权重表
+  // 显式地区权重：值越小排序越靠前，未列出的地区走大洲权重兜底
+  // 节点类型权重：专线 > 高速 > 家宽 > 直连，未匹配类型权重为 99（垫底）
+  // ================================================================
   const explicitRegionWeights = {
-    '香港': 1, '台湾': 2, '澳门': 3, '日本': 4, '狮城': 5, 
-    '美国': 6, '韩国': 7, '泰国': 8, '马来西亚': 9, '菲律宾': 10, 
+    '香港': 1, '台湾': 2, '澳门': 3, '日本': 4, '狮城': 5,
+    '美国': 6, '韩国': 7, '泰国': 8, '马来西亚': 9, '菲律宾': 10,
     '越南': 11, '印尼': 12
   };
 
@@ -25,35 +34,75 @@ async function operator(proxies, targetPlatform, context) {
     '专线': 1, '高速': 2, '家宽': 3, '直连': 4
   };
 
+  // 大洲权重兜底：地区未命中显式权重表时，按所属大洲返回权重
   const getContinentWeight = (country) => {
-    const asia = ['中国', '印度', '阿联酋', '沙特', '土耳其', '柬埔寨', '缅甸', '老挝', '孟加拉', '巴基斯坦', '斯里兰卡', '哈萨克斯坦'];
-    const europe = ['英国', '德国', '法国', '俄罗斯', '荷兰', '意大利', '西班牙', '瑞士', '瑞典', '挪威', '丹麦', '芬兰', '波兰', '爱尔兰', '葡萄牙', '奥地利', '乌克兰', '捷克', '匈牙利', '冰岛'];
+    const asia    = ['中国', '印度', '阿联酋', '沙特', '土耳其', '柬埔寨', '缅甸', '老挝', '孟加拉', '巴基斯坦', '斯里兰卡', '哈萨克斯坦'];
+    const europe  = ['英国', '德国', '法国', '俄罗斯', '荷兰', '意大利', '西班牙', '瑞士', '瑞典', '挪威', '丹麦', '芬兰', '波兰', '爱尔兰', '葡萄牙', '奥地利', '乌克兰', '捷克', '匈牙利', '冰岛'];
     const americas = ['加拿大', '巴西', '阿根廷', '智利', '墨西哥'];
-    const africa = ['南非', '埃及', '尼日利亚'];
-    const oceania = ['澳大利亚', '新西兰']; 
-
-    if (asia.includes(country)) return 20;
-    if (europe.includes(country)) return 30;
+    const africa  = ['南非', '埃及', '尼日利亚'];
+    const oceania = ['澳大利亚', '新西兰'];
+    if (asia.includes(country))     return 20;
+    if (europe.includes(country))   return 30;
     if (americas.includes(country)) return 40;
-    if (africa.includes(country)) return 50;
-    if (oceania.includes(country)) return 60;
+    if (africa.includes(country))   return 50;
+    if (oceania.includes(country))  return 60;
     return 99;
   };
 
-  // 2. 拦截过滤（注意：如果后续发现正常节点丢失，请优先检查是否触发了此处的关键词，如"更新"、"支持"）
+  // ================================================================
+  // 模块三：序号提取函数
+  // 从字符串中提取节点序号，返回序号值与分类
+  //
+  // 分类（cat）说明：
+  //   1 - 纯数字序号（如 01、02、10），格式化为两位补零
+  //   2 - 单字母序号（如 A、B、C），统一转大写
+  //   3 - 未找到序号
+  //
+  // 前置空格策略：在传入字符串前补一个空格，确保字符串开头的序号
+  // 也能被"前置非字母数字字符"的边界断言稳定命中，统一处理边界情况。
+  //
+  // 两条正则独立执行（数字优先），不存在捕获组竞争，
+  // 避免原方案中 "A01" 场景下字母后向断言失败、降级错误匹配数字的问题。
+  // ================================================================
+  const extractOrder = (rawStr) => {
+    const str = ' ' + rawStr;
+
+    // 优先匹配纯数字序号，\d{1,3} 限制长度防止误匹配端口号、IP 等长数字串
+    const numMatch = str.match(/(?:[^a-zA-Z0-9])(\d{1,3})(?=[^a-zA-Z0-9]|$)/);
+    if (numMatch) return { val: numMatch[1].padStart(2, '0'), cat: 1 };
+
+    // 数字未命中时，尝试匹配单字母序号
+    const alphaMatch = str.match(/(?:[^a-zA-Z0-9])([A-Za-z])(?=[^a-zA-Z0-9]|$)/);
+    if (alphaMatch) return { val: alphaMatch[1].toUpperCase(), cat: 2 };
+
+    return { val: '', cat: 3 };
+  };
+
+  // ================================================================
+  // 模块四：节点过滤
+  // 过滤订阅信息、广告、通知类非节点条目
+  // 注意：若发现正常节点被误删，优先排查节点名是否触发了此处关键词
+  // ================================================================
   let processedProxies = proxies.filter(proxy => {
     const name = proxy.name || '';
     return !/群|邀请|返利|循环|官网|客服|网站|网址|获取|订阅|流量|到期|机场|下次|版本|官址|备用|过期|已用|联系|邮箱|工单|贩卖|通知|倒卖|防止|国内|地址|频道|无法|说明|使用|提示|特别|访问|支持|教程|关注|更新|作者|加入|超时|收藏|福利|好友|失联/i.test(name);
   });
 
-  // 3. 信息提取与兼容性重命名
+  // ================================================================
+  // 模块五：信息提取与节点重命名
+  // 依次提取：旗帜、地区名、节点类型、倍率、序号
+  // 最终拼接格式：[旗帜] [地区] [类型?] [序号?] [倍率?]
+  // ================================================================
   processedProxies = processedProxies.map(proxy => {
     const originalName = proxy.name || '';
-    
-    // --- 旗帜与地区 ---
-    let flag = ProxyUtils.getFlag(originalName) || '🏳️';
-    flag = flag.replace(/🇹🇼/g, '🇼🇸'); 
 
+    // --- 旗帜 ---
+    // 🇹🇼 替换为 🇼🇸 以规避敏感旗帜展示
+    let flag = ProxyUtils.getFlag(originalName) || '🏳️';
+    flag = flag.replace(/🇹🇼/g, '🇼🇸');
+
+    // --- 地区识别 ---
+    // 优先级：ISO 映射表 → 名称明文匹配 → 中文字符模糊提取 → ISO 原始值 → '未知'
     const iso = ProxyUtils.getISO(originalName);
     let countryName = isoToCountryName[iso];
 
@@ -66,14 +115,16 @@ async function operator(proxies, targetPlatform, context) {
         countryName = chineseMatch ? chineseMatch[0] : (iso || '未知');
       }
     }
-    if (countryName === '新加坡') countryName = '狮城'; 
+    // 统一"新加坡"与"狮城"为同一标识
+    if (countryName === '新加坡') countryName = '狮城';
 
-    // --- 类型 ---
+    // --- 节点类型 ---
     let nodeType = '';
     const typeMatch = originalName.match(/(直连|高速|专线|家宽)/);
     if (typeMatch) nodeType = typeMatch[1];
 
     // --- 倍率 ---
+    // 倍率为 1 时不显示，避免名称冗余
     const rateMatch = originalName.match(/(\d+(?:\.\d+)?)\s*[xX]/);
     let rateStr = '';
     if (rateMatch) {
@@ -81,72 +132,83 @@ async function operator(proxies, targetPlatform, context) {
       if (rateValue !== 1) rateStr = `${rateMatch[1]}x`;
     }
 
-    // --- 序号提取 (优化锚点，直接使用最终确定的 countryName 作为锚点) ---
+    // --- 序号提取 ---
+    // 先去除倍率标记（如 "2x"），防止其中的数字被误识别为序号
     const nameWithoutRate = originalName.replace(/\d+(\.\d+)?\s*[xX]/g, '');
+
     let order = '';
-    
-    const orderRegex = /(?:^|[^a-zA-Z])([A-Za-z])(?![a-zA-Z])|([A-Za-z]?\d+)/;
-    
-    // 确保锚点不仅是中文，而且是真正的地名，避开非相关中文的前置干扰
+    let orderCategory = 3;
+
+    // 主路径：以地区名为锚点，仅在地区名之后的子串中提取序号
+    // 可有效避免将地区名之前的无关数字（套餐编号等）误识别为节点序号
     if (countryName !== '未知' && nameWithoutRate.includes(countryName)) {
       const anchorIndex = nameWithoutRate.indexOf(countryName);
       const afterAnchor = nameWithoutRate.substring(anchorIndex + countryName.length);
-      
-      const match = afterAnchor.match(orderRegex);
-      if (match) {
-        order = (match[1] || match[2]).toUpperCase();
-        if (/^\d+$/.test(order)) order = order.padStart(2, '0');
-      }
-    } else {
-      const fallbackMatch = nameWithoutRate.match(orderRegex);
-      if (fallbackMatch) {
-        order = (fallbackMatch[1] || fallbackMatch[2]).toUpperCase();
-        if (/^\d+$/.test(order)) order = order.padStart(2, '0');
-      }
+      const result = extractOrder(afterAnchor);
+      order = result.val;
+      orderCategory = result.cat;
     }
 
-    // --- 暂存参数 ---
+    // 兜底路径：地名未找到时，在完整名称中全局提取序号
+    if (!order) {
+      const result = extractOrder(nameWithoutRate);
+      order = result.val;
+      orderCategory = result.cat;
+    }
+
+    // --- 暂存排序用临时属性 ---
     proxy._countryName = countryName;
     proxy._type = nodeType;
-    proxy._order = order || '999';
-    proxy._originalName = originalName; // 暂存原名，用于终极排序兜底
+    proxy._order = order;
+    proxy._orderCategory = orderCategory;
+    proxy._originalName = originalName;
 
-    // --- 动态拼接 ---
+    // --- 拼接新节点名 ---
     const nameParts = [flag, countryName];
     if (nodeType) nameParts.push(nodeType);
-    if (order) nameParts.push(order);
-    if (rateStr) nameParts.push(rateStr);
+    if (order)    nameParts.push(order);
+    if (rateStr)  nameParts.push(rateStr);
 
     proxy.name = nameParts.join(' ');
     return proxy;
   });
 
-  // 4. 四级复合排序：大洲/地区 -> 节点类型 -> 序号 -> 原生名称兜底
+  // ================================================================
+  // 模块六：多级复合排序
+  // 排序优先级：地区/大洲 → 节点类型 → 序号分类 → 序号值 → 原始名称兜底
+  // ================================================================
   processedProxies.sort((a, b) => {
-    // 第一层：地区/大洲
+    // 第一层：地区/大洲权重（显式权重优先，未命中走大洲兜底）
     const weightA = explicitRegionWeights[a._countryName] || getContinentWeight(a._countryName);
     const weightB = explicitRegionWeights[b._countryName] || getContinentWeight(b._countryName);
     if (weightA !== weightB) return weightA - weightB;
-    
-    // 第二层：类型
+
+    // 第二层：节点类型权重
     const typeWeightA = typeWeights[a._type] || 99;
     const typeWeightB = typeWeights[b._type] || 99;
     if (typeWeightA !== typeWeightB) return typeWeightA - typeWeightB;
-    
-    // 第三层：序号比对 (01 vs 02, A vs B)
-    if (a._order !== b._order) {
-      return a._order.localeCompare(b._order, 'en', { numeric: true });
-    }
 
-    // 第四层（优化项）：当地区、类型、甚至都提取不到序号(999)时，按节点的原始名称排序，避免乱序
+    // 第三层：序号分类（数字序号 < 字母序号 < 无序号）
+    if (a._orderCategory !== b._orderCategory) return a._orderCategory - b._orderCategory;
+
+    // 第四层：同类别序号值比对
+    // parseInt || 0 防御因分类异常导致的 NaN 影响排序稳定性
+    if (a._orderCategory === 1) return (parseInt(a._order, 10) || 0) - (parseInt(b._order, 10) || 0);
+    if (a._orderCategory === 2) return a._order.localeCompare(b._order, 'en');
+
+    // 第五层：均无序号时，按原始名称字典序兜底，避免同地区节点乱序
     return a._originalName.localeCompare(b._originalName, 'en', { numeric: true });
   });
 
-  // 5. 内存清理
+  // ================================================================
+  // 模块七：内存清理
+  // 删除排序过程中附加的所有临时属性，还原干净的 proxy 对象
+  // ================================================================
   return processedProxies.map(proxy => {
     delete proxy._countryName;
     delete proxy._type;
     delete proxy._order;
+    delete proxy._orderCategory;
     delete proxy._originalName;
     return proxy;
   });
