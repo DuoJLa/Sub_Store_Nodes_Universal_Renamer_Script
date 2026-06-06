@@ -148,3 +148,7 @@
 | Docker Sub-Store 环境独立运行 | 未测试 |
 
 ---
+## ⭐ Star
+如果这个项目对你有帮助，请点个 Star ⭐ 支持一下！
+
+[![Stargazers over time](https://starchart.cc/DuoJLa/Sub_Store_Nodes_Universal_Renamer_Script.svg?variant=adaptive)](https://starchart.cc/DuoJLa/Sub_Store_Nodes_Universal_Renamer_Script)
